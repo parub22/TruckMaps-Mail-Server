@@ -1,5 +1,6 @@
 package au.com.truckmaps.mail.server;
 
+import java.util.Properties;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.core.config.Configurator;
@@ -24,32 +25,44 @@ public class Main {
     }
 
     public static void main(String[] args) {
-        port(6778);               //runs on defined port
+        try {
+            //load the server properties
+            Properties config = AppConfiguration.getSectionProperties("server");
+            port(Integer.valueOf(config.getProperty("server_port")));               //runs on defined port 6778
 
-        options("/*", (request, response) -> {
+            options("/*", (request, response) -> {
+                //Handle a preflight request for a Cross-Origin Resource Sharing (CORS) request.
+                String accessControlRequestHeaders = request.headers("Access-Control-Request-Headers");
+                if (accessControlRequestHeaders != null) {
+                    response.header("Access-Control-Allow-Headers", accessControlRequestHeaders);
+                }
 
-            String accessControlRequestHeaders = request.headers("Access-Control-Request-Headers");
-            if (accessControlRequestHeaders != null) {
-                response.header("Access-Control-Allow-Headers", accessControlRequestHeaders);
-            }
+                String accessControlRequestMethod = request.headers("Access-Control-Request-Method");
+                if (accessControlRequestMethod != null) {
+                    response.header("Access-Control-Allow-Methods", accessControlRequestMethod);
+                }
 
-            String accessControlRequestMethod = request.headers("Access-Control-Request-Method");
-            if (accessControlRequestMethod != null) {
-                response.header("Access-Control-Allow-Methods", accessControlRequestMethod);
-            }
+                return "OK";
+            });
 
-            return "OK";
-        });
+            /**
+             * Enable CORS for all origins and methods. Sets headers in the
+             * response object for handling Cross-Origin Resource Sharing (CORS)
+             * requests.
+             */
+            before((request, response) -> {
+                response.header("Access-Control-Allow-Origin", "*");
+                response.header("Access-Control-Request-Method", "GET, POST, PUT, DELETE, OPTIONS");
+                response.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+                response.header("Access-Control-Allow-Credentials", "true");
+            });
 
-        // Enable CORS for all origins and methods
-        before((request, response) -> {
-            response.header("Access-Control-Allow-Origin", "*");
-            response.header("Access-Control-Request-Method", "GET, POST, PUT, DELETE, OPTIONS");
-            response.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
-            response.header("Access-Control-Allow-Credentials", "true");
-        });
+            post("/mail", (req, res) -> Mailer.sendEmail(req, res));
 
-        post("/mail", (req, res) -> Mailer.sendEmail(req, res));
-
+        } catch (NumberFormatException ex) {
+            LOG.error("Error of Number format occurred: ", ex.getMessage());
+        } catch (Exception ex) {
+            LOG.error("Error occurred: ", ex.getMessage());
+        }
     }
 }

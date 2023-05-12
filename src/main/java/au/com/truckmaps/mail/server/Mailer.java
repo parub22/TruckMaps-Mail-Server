@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.io.StringWriter;
 import java.io.UnsupportedEncodingException;
 import java.io.Writer;
+import java.util.Arrays;
 import java.util.Calendar;
 import java.util.HashMap;
 import java.util.Map;
@@ -44,8 +45,8 @@ public class Mailer {
     private static final Logger LOG = LogManager.getLogger(Mailer.class);
     static final Properties PROP = AppConfiguration.getSectionProperties("mail_");
 
-    public static String sendEmail(Request req, Response res) throws Exception {
-        LOG.info("Request body: {}", req.body());
+    public static String sendEmail(Request req, Response res) {
+        LOG.info("Send Email module started...");
 
         //if request body is not empty then extract email contact object
         try {
@@ -57,14 +58,17 @@ public class Mailer {
                 res.status(400);
                 return "Required Parameter Missing";
             }
-
-            String templateName = "truckmaps.ftl";
+            String templateName = PROP.getProperty("mail_template_name");
             String folder = PROP.getProperty("mail_template_path");
+            LOG.debug("Email template name: {} ", templateName);
             try {
                 Message message = getMessage();
-                message.setRecipient(Message.RecipientType.TO, new InternetAddress("parbatibudhathoki22@gmail.com", "paru"));
-
+                message.setRecipient(Message.RecipientType.TO,
+                        new InternetAddress(PROP.getProperty("mail_receiver_id"), PROP.getProperty("mail_receiver_name")));
+                message.addRecipient(Message.RecipientType.TO,
+                        new InternetAddress(PROP.getProperty("mail_receiver_id1"), PROP.getProperty("mail_receiver_name1")));
                 // Free marker Template
+                LOG.info("Email receients: {}", Arrays.toString(message.getAllRecipients()));
                 Configuration cfg = new Configuration();
                 cfg.setDirectoryForTemplateLoading(new File(folder));
                 cfg.setDefaultEncoding("UTF-8");
@@ -82,16 +86,31 @@ public class Mailer {
                 body.setContent(out.toString(), "text/html");
                 Multipart multipart = new MimeMultipart();
                 multipart.addBodyPart(body);
-                message.setSubject("[TruckMaps] You've got a new mail.");
+                message.setSubject("[TruckMaps] You've got a new message.");
                 message.setContent(multipart);
+                LOG.info("Email is all ready to be sent...");
                 Transport.send(message);
                 LOG.info("The e-mail was sent successfully");
-            } catch (TemplateException | IOException | MessagingException e) {
-                throw new Exception("Error occur while sending Email: " + e.getMessage());
+            } catch (TemplateException e) {
+                LOG.error("Template Error occured while sending Email: {}", e.getMessage());
+                res.status(500);
+                return "Error occurred in server while sending Email ";
+            } catch (MessagingException e) {
+                LOG.error("Messaging Error occured while sending Email: {}", e);
+                res.status(500);
+                return "Error occurred in server while sending Email ";
+            } catch (IOException e) {
+                LOG.error("IO Error occured while sending Email: {}", e.getMessage());
+                res.status(500);
+                return "Error occurred in server while sending Email ";
+            } catch (Exception e) {
+                LOG.error("Error occured while sending Email: {}", e.getMessage());
+                res.status(500);
+                return "Error occurred in server while sending Email ";
             }
-            return "sent";
+            return "Email sent successfully.";
         } catch (JsonSyntaxException ex) {
-            LOG.error("Error while extracting the object: ", ex.getMessage());
+            LOG.error("Error while extracting the object: {}", ex.getMessage());
             res.status(500);
             return "error";
         }
@@ -101,15 +120,18 @@ public class Mailer {
     public static Message getMessage() {
         Message message = null;
         try {
-            String confSender = PROP.getProperty("mail_sender_name");
-            String confEmail = PROP.getProperty("mail_sender_email");
-            final String confPass = PROP.getProperty("mail_sender_pass");
-            final String confUserName = PROP.getProperty("mail_sender_username");
+            //read email configuration setting from a file
+            String senderName = PROP.getProperty("mail_sender_name");
+            //String confEmail = PROP.getProperty("mail_sender_email");
+            final String senderPass = PROP.getProperty("mail_sender_pass");
+            final String senderEmail = PROP.getProperty("mail_sender_email");
 
+            //configure the JavaMail session to use the specified SMTP server, port, and authentication settings
             Properties SESSION_PROP = new Properties();
             SESSION_PROP.put("mail.smtp.host", PROP.getProperty("mail_smtp_server"));
             SESSION_PROP.put("mail.smtp.port", PROP.getProperty("mail_smtp_port"));
             SESSION_PROP.put("mail.smtp.auth", PROP.getProperty("mail_smtp_auth"));
+            SESSION_PROP.put("mail.smtp.ssl.protocols", "TLSv1.2");     //
 
             if (PROP.getProperty("mail_smtp_auth").equals("true") && PROP.getProperty("mail_smtp_trusttype").equals("tls")) {
                 SESSION_PROP.put("mail.smtp.starttls.enable", true);
@@ -122,7 +144,7 @@ public class Mailer {
                 Authenticator auth = new Authenticator() {
                     @Override
                     public PasswordAuthentication getPasswordAuthentication() {
-                        return new PasswordAuthentication(confUserName, confPass);
+                        return new PasswordAuthentication(senderEmail, senderPass);
                     }
                 };
                 session = Session.getInstance(SESSION_PROP, auth);
@@ -131,7 +153,7 @@ public class Mailer {
             }
             message = new MimeMessage(session);
             try {
-                message.setFrom(new InternetAddress(confEmail, confSender));
+                message.setFrom(new InternetAddress(senderEmail, senderName));
             } catch (UnsupportedEncodingException | MessagingException ex) {
                 LOG.error(ex.getMessage());
             }
@@ -139,6 +161,5 @@ public class Mailer {
             LOG.error(ex.getMessage());
         }
         return message;
-
     }
 }
